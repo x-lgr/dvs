@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upload to Discord Webhook</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 600px;
+      margin: 50px auto;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+
+    .container {
+      background: white;
+      padding: 40px;
+      border-radius: 15px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      text-align: center;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 30px;
+      font-size: 2em;
+    }
+
+    .upload-area {
+      border: 3px dashed #ddd;
+      border-radius: 10px;
+      padding: 40px;
+      margin: 20px 0;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      background: #fafafa;
+    }
+
+    .upload-area:hover {
+      border-color: #667eea;
+      background: #f0f4ff;
+    }
+
+    .upload-area.dragover {
+      border-color: #667eea;
+      background: #e8f2ff;
+      transform: scale(1.02);
+    }
+
+    #uploadBtn {
+      background: linear-gradient(45deg, #667eea, #764ba2);
+      color: white;
+      border: none;
+      padding: 15px 30px;
+      font-size: 16px;
+      border-radius: 25px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+
+    #uploadBtn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    #uploadBtn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .file-info {
+      margin: 20px 0;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      display: none;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: #e0e0e0;
+      border-radius: 3px;
+      margin: 15px 0;
+      overflow: hidden;
+      display: none;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(45deg, #667eea, #764ba2);
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    .status {
+      margin: 15px 0;
+      padding: 10px;
+      border-radius: 5px;
+      display: none;
+    }
+
+    .status.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .file-limits {
+      font-size: 12px;
+      color: #666;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📤 File Upload to Discord</h1>
+    
+    <div class="upload-area" id="uploadArea">
+      <div>
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="#667eea">
+          <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+        </svg>
+        <p>Click here or drag and drop files to upload</p>
+        <button id="uploadBtn">Choose File</button>
+      </div>
+    </div>
+
+    <div class="file-limits">
+      Maximum file size: 25MB | Supported formats: Images, Documents, Videos, etc.
+    </div>
+
+    <input type="file" id="fileInput" style="display: none;" />
+    
+    <div class="file-info" id="fileInfo">
+      <strong>Selected file:</strong> <span id="fileName"></span><br>
+      <strong>Size:</strong> <span id="fileSize"></span>
+    </div>
+
+    <div class="progress-bar" id="progressBar">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <script>
+    const webhookURL = 'https://discord.com/api/webhooks/1401217012876836915/Xz7ttdFZemPJ9L_LSFqGS5Tgu8HqeMKDr9dQbAnXhj5S0SARsLczb4PQuItXepl7xYDj';
+
+    const uploadBtn = document.getElementById('uploadBtn');
+    const fileInput = document.getElementById('fileInput');
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+    const progressBar = document.getElementById('progressBar');
+    const progressFill = document.getElementById('progressFill');
+    const status = document.getElementById('status');
+
+    // File size limit (25MB for Discord)
+    const MAX_FILE_SIZE = 25 * 1024 * 1024;
+
+    function formatFileSize(bytes) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function showStatus(message, type) {
+      status.textContent = message;
+      status.className = `status ${type}`;
+      status.style.display = 'block';
+      setTimeout(() => {
+        status.style.display = 'none';
+      }, 5000);
+    }
+
+    function validateFile(file) {
+      if (file.size > MAX_FILE_SIZE) {
+        showStatus('File size exceeds 25MB limit. Please choose a smaller file.', 'error');
+        return false;
+      }
+      return true;
+    }
+
+    function displayFileInfo(file) {
+      fileName.textContent = file.name;
+      fileSize.textContent = formatFileSize(file.size);
+      fileInfo.style.display = 'block';
+    }
+
+    function resetUI() {
+      fileInfo.style.display = 'none';
+      progressBar.style.display = 'none';
+      progressFill.style.width = '0%';
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = 'Choose File';
+    }
+
+    // Click to upload
+    uploadBtn.addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    uploadArea.addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    // Drag and drop functionality
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        handleFile(files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (file) {
+        handleFile(file);
+      }
+    });
+
+    async function handleFile(file) {
+      if (!validateFile(file)) {
+        fileInput.value = '';
+        return;
+      }
+
+      displayFileInfo(file);
+      
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Uploading...';
+      progressBar.style.display = 'block';
+
+      // Simulate progress for better UX
+      let progress = 0;
+      const progressInterval = setInterval(() => {
+        progress += Math.random() * 15;
+        if (progress > 90) progress = 90;
+        progressFill.style.width = progress + '%';
+      }, 200);
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch(webhookURL, {
+          method: 'POST',
+          body: formData
+        });
+
+        clearInterval(progressInterval);
+        progressFill.style.width = '100%';
+
+        if (response.ok) {
+          showStatus('✅ File uploaded successfully to Discord!', 'success');
+        } else {
+          const errorText = await response.text();
+          console.error('Upload failed:', response.status, errorText);
+          
+          if (response.status === 413) {
+            showStatus('❌ File too large. Discord has a 25MB limit.', 'error');
+          } else if (response.status === 400) {
+            showStatus('❌ Invalid file or webhook URL. Please check your settings.', 'error');
+          } else {
+            showStatus(`❌ Upload failed: ${response.status} ${response.statusText}`, 'error');
+          }
+        }
+      } catch (error) {
+        clearInterval(progressInterval);
+        console.error('Upload error:', error);
+        
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+          showStatus('❌ Network error. Please check your internet connection.', 'error');
+        } else {
+          showStatus('❌ An unexpected error occurred. Please try again.', 'error');
+        }
+      }
+
+      // Reset UI after a delay
+      setTimeout(() => {
+        resetUI();
+        fileInput.value = '';
+      }, 3000);
+    }
+
+    // Prevent default drag behaviors on the document
+    document.addEventListener('dragover', (e) => e.preventDefault());
+    document.addEventListener('drop', (e) => e.preventDefault());
+  </script>
+</body>
+</html>
